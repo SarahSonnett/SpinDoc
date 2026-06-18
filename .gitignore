@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+PeriodHGSearch_*/
+PeriodUncertaintyResults_*
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
