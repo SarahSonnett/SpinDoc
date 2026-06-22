@@ -66,7 +66,10 @@ SpinDoc/
 │   └── io.py              # photometry file reader
 ├── period_search.py       # iterative period + H-G fitter
 ├── period_uncertainty.py  # bootstrap period uncertainty
-└── docs/images/           # figures referenced in this README
+├── tests/                 # test suite
+└── docs/
+    ├── images/                                  # figures referenced in this README
+    └── Target_Calibrated_FinalErr_rp_cleaned.txt  # sample photometry dataset
 ```
 
 ---
@@ -79,7 +82,7 @@ Run the code that fits period, H, and G iteratively using a broad period range f
 
 ```bash
 python period_search.py \
-    --infile  Target_Calibrated_FinalErr_cleaned.txt \
+    --infile  docs/Target_Calibrated_FinalErr_rp_cleaned.txt \
     --object  3923 \
     --minper  2. \
     --maxper  300.
@@ -103,7 +106,7 @@ In that case, rerun with a tighter period range centred on the double-period sol
 
 ```bash
 python period_search.py \
-    --infile  Target_Calibrated_FinalErr_cleaned.txt \
+    --infile  docs/Target_Calibrated_FinalErr_rp_cleaned.txt \
     --object  3923 \
     --minper  24. \
     --maxper  28.
@@ -121,7 +124,7 @@ Use a bootstrapping technique: randomly vary the photometry within its error bar
 
 ```bash
 python period_uncertainty.py \
-    --infile   Target_Calibrated_FinalErr_cleaned.txt \
+    --infile   docs/Target_Calibrated_FinalErr_rp_cleaned.txt \
     --objname  3923 \
     --period   26.463 \
     --order    3 \
@@ -171,19 +174,43 @@ The code outputs the period and amplitude distributions over all trials, along w
 
 ## Input file format
 
-Default format (11 columns, 1 header row):
+A sample photometry file is provided at [`docs/Target_Calibrated_FinalErr_rp_cleaned.txt`](docs/Target_Calibrated_FinalErr_rp_cleaned.txt) — the r'-band data used to generate the example figures in this README. It is also exercised as a fixture by the test suite (see [Tests](#tests)).
 
-| Col | Content |
-|---|---|
-| 1 | heliocentric distance (AU) |
-| 2 | geocentric distance (AU) |
-| 3 | solar phase angle (degrees) |
-| 5 | filter |
-| 7 | MJD |
-| 8 | calibrated magnitude |
-| 10 | magnitude uncertainty |
+Default format: whitespace-delimited, 11 columns, with a single header row. The first few lines look like:
+
+```
+Frame                           Rhelio  Delta  alpha  Amass Filter Exptime MJD    TmagCorr  TmagErr  TmagFinalErr
+lsc1m004-fa03-20190805-0113-e91 5.0334 4.0624 3.731 1.541 rp 154 58701.1115602 18.89380 0.022 0.032
+lsc1m004-fa03-20190805-0114-e91 5.0334 4.0624 3.731 1.520 rp 154 58701.1136581 18.85950 0.021 0.031
+```
+
+The reader uses fixed column *positions* (header names are ignored), so every column must be present to keep the positions aligned. The columns it reads are:
+
+| Col | Header | Content |
+|---|---|---|
+| 2 | `Rhelio` | heliocentric distance (AU) |
+| 3 | `Delta` | geocentric distance (AU) |
+| 4 | `alpha` | solar phase angle (degrees) |
+| 6 | `Filter` | filter |
+| 8 | `MJD` | observation time (MJD) |
+| 9 | `TmagCorr` | calibrated magnitude |
+| 11 | `TmagFinalErr` | magnitude uncertainty |
+
+Columns 1, 5, 7, and 10 (`Frame`, `Amass`, `Exptime`, `TmagErr`) are placeholders that must be present but are not read.
 
 Compact format (`--format compact`, 7 data columns): MJD, helio, geo, alpha, mag, merr, filter.
+
+---
+
+## Tests
+
+The test suite reads the sample dataset through the public reader and checks that the default input format is parsed correctly. The tests have no dependencies beyond `numpy`, and can be run either with pytest or directly:
+
+```bash
+pytest tests/
+# or, without pytest:
+python tests/test_read_photometry.py
+```
 
 ---
 
