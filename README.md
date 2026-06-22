@@ -14,11 +14,15 @@ The solar phase function is the measure of how an asteroid's brightness changes 
 
 ![Phase angle diagram](docs/images/image1.jpg)
 
+*Figure from Buchheim (2010).*
+
 The parameters **H** and **G** describe the y-intercept and steepness of the phase curve, respectively. **H** is the absolute magnitude — the brightness an object would have if it were 1 AU from the Earth, 1 AU from the Sun, and at a phase angle of 0°. This is an unphysical situation, but it is useful for comparing solar system bodies. Since surface reflectivity changes with wavelength, H-magnitude differs for different broadband filters (V-filter H is standard). Lower H means brighter.
 
 The phase function looks something like this:
 
 ![Phase function curve](docs/images/image2.jpg)
+
+*Figure from Buchheim (2010).*
 
 ![Reduced magnitude vs phase angle](docs/images/image3.png)
 
@@ -27,6 +31,8 @@ Over a small range of phase angles the reduced magnitude may not change much. Mo
 To see the phase curve, we must account for rotational modulation. One further complication: light-curve amplitude can vary slightly with phase angle:
 
 ![Amplitude vs phase angle](docs/images/image4.jpg)
+
+*Figure from Buchheim (2010).*
 
 ### Algorithm
 
@@ -177,4 +183,21 @@ Compact format (`--format compact`, 7 data columns): MJD, helio, geo, alpha, mag
 
 ## Author
 
-Alla Sonnett
+This code package was written by S. Sonnett. It was first referenced publicly in the two Minor Planet Bulletin papers listed below, which were led by students using these tools.
+
+---
+
+## Citing this software
+
+If you use SpinDoc in your work, please cite the papers in which it was first applied:
+
+- Williamson, B., Sonnett, S., Witry, J., Chatelain, J., Grav, T., Reddy, V., Lejoly, C., Kramer, E., Mainzer, A., Masiero, J., Gritsevich, M., & Bauer, J. (2019). "Physical Properties of Hilda Binary Asteroid Candidates." *Minor Planet Bulletin*, 46(3), 332–335. [2019MPBu...46..332W](https://ui.adsabs.harvard.edu/abs/2019MPBu...46..332W/abstract)
+- Witry, J., Sonnett, S., Williamson, B., Chatelain, J., Grav, T., Reddy, V., Lejoly, C., Kramer, E., Mainzer, A., Masiero, J., Gritsevich, M., & Bauer, J. (2019). "Rotation Properties of Large-Amplitude Hilda Asteroids." *Minor Planet Bulletin*, 46(3), 335–338. [2019MPBu...46..335W](https://ui.adsabs.harvard.edu/abs/2019MPBu...46..335W/abstract)
+
+---
+
+## References
+
+- Buchheim, R. K. (2010). "Methods and Lessons Learned Determining the H-G Parameters of Asteroid Phase Curves." *Proceedings of the Society for Astronomical Sciences Annual Symposium*, 29, 101–115. [2010SASS...29..101B](https://ui.adsabs.harvard.edu/abs/2010SASS...29..101B/abstract)
+
+The phase-angle, phase-function, and amplitude-vs-phase-angle figures in the **Background** section above are reproduced from Buchheim (2010).
