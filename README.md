@@ -87,8 +87,7 @@ python period_search.py \
 
 **Examine the output.** Look first at the periodograms in the newly created `PeriodHGSearch_<filter>/Periodograms/` directory. The code computes reduced chi-squared periodograms across several Fourier series orders. Look at the 1st iteration to see the broadest range of periods. The minima represent the best period solutions:
 
-![Chi-squared periodogram 1](docs/images/Chisq_order2_iter2.png)
-![Chi-squared periodogram 2](docs/images/image6.png)
+![Chi-squared periodogram](docs/images/Chisq_order2_iter2.png)
 
 If reduced chi-squared never falls below ~3, you have poor fits and may not have a good period solution in that plot.
 

@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 PeriodHGSearch_*/
 PeriodUncertaintyResults_*
+!docs/images/PeriodUncertaintyResults_*
 *.egg-info/
 dist/
 build/
