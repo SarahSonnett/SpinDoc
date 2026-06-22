@@ -87,7 +87,7 @@ python period_search.py \
 
 **Examine the output.** Look first at the periodograms in the newly created `PeriodHGSearch_<filter>/Periodograms/` directory. The code computes reduced chi-squared periodograms across several Fourier series orders. Look at the 1st iteration to see the broadest range of periods. The minima represent the best period solutions:
 
-![Chi-squared periodogram 1](docs/images/image5.png)
+![Chi-squared periodogram 1](docs/images/Chisq_order2_iter2.png)
 ![Chi-squared periodogram 2](docs/images/image6.png)
 
 If reduced chi-squared never falls below ~3, you have poor fits and may not have a good period solution in that plot.
@@ -98,8 +98,7 @@ If reduced chi-squared never falls below ~3, you have poor fits and may not have
 
 **Examine the phased light curve** for the chosen order (3rd iteration). A typical asteroid light curve has two maxima per rotation. If the best-fit solution shows only one maximum, the true period is probably twice the best-fit value:
 
-![Phased light curve — single peak](docs/images/image9.png)
-![Phased light curve — double peak](docs/images/image10.png)
+![Phased light curve](docs/images/Chi2_iter3_fit1.png)
 
 In that case, rerun with a tighter period range centred on the double-period solution:
 
@@ -113,6 +112,10 @@ python period_search.py \
 
 Repeat until the period solution is isolated.
 
+**Examine the solar phase function.** Once the rotational modulation has been removed, the code fits the IAU H-G phase function to the reduced magnitudes and writes the result to `PeriodHGSearch_<filter>/`. This is the solar phase function computed by SpinDoc:
+
+![Solar phase function H-G fit](docs/images/HGFit_order2_iter3.png)
+
 ### Step 2 — Period and amplitude uncertainties
 
 Use a bootstrapping technique: randomly vary the photometry within its error bars (Gaussian random factor) and refit the light curve for a user-defined number of trials. The FWHMs of the resulting period and amplitude distributions are the uncertainties.
@@ -125,6 +128,10 @@ python period_uncertainty.py \
     --order    3 \
     --ntrials  1000
 ```
+
+The code outputs the period and amplitude distributions over all trials, along with the fitted FWHMs that give the uncertainties:
+
+![Period uncertainty results](docs/images/PeriodUncertaintyResults_rp.png)
 
 > **Note:** Uncertainties on H and G should come from the final solar phase function plot, not from this uncertainty algorithm.
 
