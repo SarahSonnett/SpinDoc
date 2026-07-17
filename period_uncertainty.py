@@ -101,7 +101,7 @@ def main():
     order  = args.order
     dP     = 0.01
     prange = np.arange(period - 50. * dP, period + 50. * dP + dP, dP)
-    starterarray = [1.] * (order * 2 + 2)
+    starterarray = [1.] * (order * 2 + 1)
     modelx = np.linspace(0., 1., 10000)
 
     for fltr in np.unique(raw['filters']):

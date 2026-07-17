@@ -127,7 +127,7 @@ def fit_period_chisq(time, minper, maxper, dP, H, G, order, iteration, data,
 
     datebins = list(np.unique(np.floor(data.mjd + 0.5)))
     datebins.append(max(datebins) + 1)
-    starterarray = [1.] * (order * 2 + 2)
+    starterarray = [1.] * (order * 2 + 1)
     modelx = np.linspace(0., 1., 10000)
     mask = data.fit_mask()
 

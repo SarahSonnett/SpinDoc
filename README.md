@@ -204,12 +204,13 @@ Compact format (`--format compact`, 7 data columns): MJD, helio, geo, alpha, mag
 
 ## Tests
 
-The test suite reads the sample dataset through the public reader and checks that the default input format is parsed correctly. The tests have no dependencies beyond `numpy`, and can be run either with pytest or directly:
+The test suite reads the sample dataset through the public reader to check that the default input format is parsed correctly, and verifies that the phased Fourier model is exactly periodic over [0, 1] (its two ends meet at phase 0 and phase 1). The tests have no dependencies beyond `numpy`, and can be run either with pytest or directly:
 
 ```bash
 pytest tests/
 # or, without pytest:
 python tests/test_read_photometry.py
+python tests/test_fourier.py
 ```
 
 ---

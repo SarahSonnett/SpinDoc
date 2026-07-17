@@ -21,13 +21,16 @@ def read_photometry(infile, fmt=None):
     else:
         cols = dict(time=1, helio=2, geo=3, alpha=4, mags=5, merr=6, filters=7)
 
-    kw = dict(unpack=True, skip_header=1)
+    # Read the whole table once as strings, then cast per column. (Reading each
+    # column with a separate genfromtxt call would re-parse the file 7 times.)
+    table = np.atleast_2d(np.genfromtxt(infile, dtype=str, skip_header=1))
+
     return {
-        'time':    np.genfromtxt(infile, dtype=float, usecols=cols['time'],    **kw),
-        'helio':   np.genfromtxt(infile, dtype=float, usecols=cols['helio'],   **kw),
-        'geo':     np.genfromtxt(infile, dtype=float, usecols=cols['geo'],     **kw),
-        'alpha':   np.genfromtxt(infile, dtype=float, usecols=cols['alpha'],   **kw),
-        'mags':    np.genfromtxt(infile, dtype=float, usecols=cols['mags'],    **kw),
-        'merr':    np.genfromtxt(infile, dtype=float, usecols=cols['merr'],    **kw),
-        'filters': np.genfromtxt(infile, dtype=str,   usecols=cols['filters'], **kw),
+        'time':    table[:, cols['time']].astype(float),
+        'helio':   table[:, cols['helio']].astype(float),
+        'geo':     table[:, cols['geo']].astype(float),
+        'alpha':   table[:, cols['alpha']].astype(float),
+        'mags':    table[:, cols['mags']].astype(float),
+        'merr':    table[:, cols['merr']].astype(float),
+        'filters': table[:, cols['filters']],
     }

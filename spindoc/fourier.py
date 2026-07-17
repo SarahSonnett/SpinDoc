@@ -4,15 +4,21 @@ import numpy as np
 def fourier(phase, *coeff):
     """Nth-order Fourier series model for a phased light curve.
 
-    coeff layout: [period, mean, phi_1, A_1, phi_2, A_2, ...]
+    The data are already folded to a rotation phase in [0, 1), so the
+    fundamental period in phase space is fixed to exactly 1 (one rotation per
+    unit phase, omega = 2*pi). This guarantees the model is exactly periodic
+    over [0, 1] -- the two ends meet at phase 0 and phase 1 for every fit. The
+    rotation period itself is set by the folding and is *not* a free parameter
+    of this model.
+
+    coeff layout: [mean, phi_1, A_1, phi_2, A_2, ...]
     """
-    period = coeff[0]
-    omega = 2. * np.pi / period
-    ret = coeff[1] + coeff[3] * np.sin(omega * phase + coeff[2])
-    nord = int((len(coeff) - 2) / 2)
+    omega = 2. * np.pi
+    ret = coeff[0] + coeff[2] * np.sin(omega * phase + coeff[1])
+    nord = int((len(coeff) - 1) / 2)
     i = 3
     for iord in range(nord - 1):
-        ret += coeff[i + 1] * np.sin((iord + 2) * omega * phase + coeff[i + 2])
+        ret += coeff[i] * np.sin((iord + 2) * omega * phase + coeff[i + 1])
         i += 2
     return ret
 

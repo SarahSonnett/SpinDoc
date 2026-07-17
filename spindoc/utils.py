@@ -16,7 +16,10 @@ def makenewdir(dirname):
 
 
 def chisqrpdf(data, model, error):
-    chisq = sum(((d - m) ** 2) / (e ** 2) for d, m, e in zip(data, model, error))
+    data = np.asarray(data)
+    model = np.asarray(model)
+    error = np.asarray(error)
+    chisq = np.sum((data - model) ** 2 / error ** 2)
     return chisq / (len(data) - 1)
 
 
