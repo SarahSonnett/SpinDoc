@@ -153,6 +153,26 @@ The code outputs the period and amplitude distributions over all trials, along w
 
 ---
 
+## Runtime
+
+`period_search.py` runs the full order 2–9 search over three refinement iterations, generating hundreds of diagnostic figures along the way. Wall-clock time is roughly:
+
+```
+time ≈ 90 s  +  0.08 s × (maxper − minper) / dPstart
+```
+
+The fixed ~90 s is dominated by writing the figures; the second term is the broad first-iteration period grid. On a typical laptop, for the sample dataset (~430 points, one filter):
+
+| Search range | Approx. time |
+|---|---|
+| `--minper 2 --maxper 300` (default broad search) | ~5–6 min |
+| `--minper 2 --maxper 50` | ~2 min |
+| `--minper 24 --maxper 28` (narrow follow-up) | ~1.5 min |
+
+This scales roughly linearly with the number of photometry points and runs **once per filter**, so multi-filter datasets take proportionally longer. `period_uncertainty.py` scales with `--ntrials` (1000 trials on the sample is a few minutes).
+
+---
+
 ## Command-line reference
 
 ### `period_search.py`
