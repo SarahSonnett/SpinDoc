@@ -98,6 +98,8 @@ If reduced chi-squared never falls below ~3, you have poor fits and may not have
 
 **Examine the summary.** Look at `PeriodHGSearch_<filter>/Summary.*` to identify at which Fourier order the four parameters (period, amplitude, H, G) begin to converge. Select the *lowest* order that achieves convergence — this protects against over-fitting.
 
+As a starting point, the code **prints a recommended order** (and records it at the bottom of `Summary_joint.txt`), chosen as the order that minimizes the Bayesian Information Criterion, BIC = χ² + k·ln(N). BIC rewards a good fit while penalizing extra harmonics, so it favors the most parsimonious order that still fits well. **This is only a suggestion** — always confirm it against the phased light curves and parameter convergence, and make the final choice yourself.
+
 ![Summary convergence plot](docs/images/image7.png)
 
 **Examine the phased light curve** for the chosen order (3rd iteration). A typical asteroid light curve has two maxima per rotation. If the best-fit solution shows only one maximum, the true period is probably twice the best-fit value:

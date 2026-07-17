@@ -53,8 +53,22 @@ def test_joint_fit_recovers_sensible_parameters():
     assert res["cov"].shape == (6, 6)
 
 
+def test_recommend_order_prefers_parsimony():
+    # Synthetic results: chi2 stops improving after order 3, so BIC (which
+    # penalises extra parameters) must not keep climbing to higher orders.
+    def fake(order, chi2nu, npts=400):
+        k = 2 + 2 * order
+        return {"order": order, "chi2nu": chi2nu, "npts": npts,
+                "coeff": np.zeros(k)}
+    results = [fake(2, 2.0), fake(3, 1.0), fake(4, 0.99), fake(5, 0.985)]
+    rec, bic = ps.recommend_order(results)
+    assert rec == 3               # order 3 reaches the noise floor; 4-5 just overfit
+    assert set(bic) == {2, 3, 4, 5}
+
+
 if __name__ == "__main__":
     test_zero_amplitude_reduces_to_phase_function()
     test_rotational_part_is_phase_periodic()
     test_joint_fit_recovers_sensible_parameters()
-    print("OK: joint H-G + Fourier model and fit behave correctly")
+    test_recommend_order_prefers_parsimony()
+    print("OK: joint H-G + Fourier model, fit, and order recommendation behave correctly")

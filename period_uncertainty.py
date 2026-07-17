@@ -57,7 +57,7 @@ def fourier_chi2(phase, rmags, merr, starterarray):
     rp_s, mg_s, me_s = phase[idx], rmags[idx], merr[idx]
     try:
         popt, _ = curve_fit(fourier, rp_s, mg_s, starterarray, sigma=me_s)
-        return chisqrpdf(mg_s, fourier(rp_s, *popt), me_s)
+        return chisqrpdf(mg_s, fourier(rp_s, *popt), me_s, nparams=len(popt))
     except Exception:
         return np.nan
 

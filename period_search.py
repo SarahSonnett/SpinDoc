@@ -373,6 +373,28 @@ def write_model(fltr, res):
     return path
 
 
+def recommend_order(results):
+    """Suggest a Fourier order by minimising the Bayesian Information Criterion.
+
+    BIC = chi2 + k*ln(N), where chi2 is the total (not reduced) chi-squared, k is
+    the number of free parameters, and N is the number of points. BIC penalises
+    extra harmonics more strongly than AIC (ln N > 2 for realistic N), which
+    guards against over-fitting. This is only a recommendation -- the final order
+    remains a human decision.
+
+    Returns (recommended_order, {order: bic}); (None, {}) if there are no results.
+    """
+    bic = {}
+    for r in results:
+        k = len(r['coeff'])
+        dof = max(r['npts'] - k, 1)
+        chi2_total = r['chi2nu'] * dof
+        bic[r['order']] = chi2_total + k * np.log(r['npts'])
+    if not bic:
+        return None, {}
+    return min(bic, key=bic.get), bic
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -459,6 +481,7 @@ def run_filter(data, args):
     jointfile.write('Order chi2_nu(N-k) Per(hrs) Amp(mags) H(mags) Hsigma G    Gsigma\n')
 
     all_rows = []
+    joint_results = []
 
     for order in orderarray:
         minper, maxper, dP = minper_orig, maxper_orig, args.dPstart
@@ -500,10 +523,23 @@ def run_filter(data, args):
         res = fit_joint(data, topper, order)
         if res is not None:
             write_model(data.fltr, res)
+            joint_results.append(res)
             jointfile.write('%2i  %8.4f  %3.4f  %1.3f  %2.4f  %1.4f  %2.4f  %1.4f\n'
                             % (order, res['chi2nu'], res['period'], res['amp'],
                                res['H'], res['Hsig'], res['G'], res['Gsig']))
             jointfile.flush()
+
+    # Recommend an order (BIC) -- a suggestion only; the choice stays with you.
+    rec, bic = recommend_order(joint_results)
+    if rec is not None:
+        msg = (f'Recommended Fourier order (lowest BIC): {rec}. '
+               f'This is a suggestion only -- please confirm by inspecting the '
+               f'phased light curves and parameter convergence, and choose the '
+               f'lowest order that fits well.')
+        print(f'[filter {data.fltr}] {msg}')
+        jointfile.write('#\n# ' + msg + '\n')
+        jointfile.write('# BIC by order: '
+                        + ', '.join(f'{o}:{bic[o]:.1f}' for o in sorted(bic)) + '\n')
 
     sumfile.close()
     jointfile.close()
