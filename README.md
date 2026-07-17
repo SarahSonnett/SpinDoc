@@ -40,6 +40,8 @@ Fit the rotation period, amplitude, H, and G iteratively by phasing the data at 
 
 The rotation solution is sensitive to the H-G parameters (incorrect H-G values can make the data align better at the wrong period), and the H-G parameters are sensitive to the rotation period. For now we ignore the amplitude dependence on phase angle, since the phase angles sampled in typical datasets rarely span more than 10°.
 
+Once the period has been located by the grid search, a final **joint fit** solves for H, G, and the Fourier coefficients *simultaneously* at the converged period. Because the period itself is fixed by the folding (its χ² surface is strongly multimodal and cannot be searched by a local optimiser), this joint step does not re-search the period — but it gives self-consistent, correlated uncertainties on H, G, and amplitude from a single covariance matrix, and a reduced chi-squared computed with the correct degrees of freedom (dof = N − k, where k is the number of free parameters). The joint solution for each order is written to `Summary_joint.txt` and to a reproducible model file under `Models/` (see [Usage](#usage)).
+
 ---
 
 ## Installation
@@ -118,9 +120,19 @@ Repeat until the period solution is isolated.
 
 ![Solar phase function H-G fit](docs/images/HGFit_order2_iter3.png)
 
+**Best-fit model output.** For each order, the joint H-G + Fourier solution (period, H, G, Fourier coefficients, their 1-σ errors, the full covariance matrix, an honest reduced χ² with dof = N − k, and a densely sampled model light curve) is written to a self-describing text file, ready to reconstruct the model downstream (e.g. for shape-model fitting):
+
+```
+PeriodHGSearch_<filter>/
+├── Summary.txt          # per-order/iteration parameters (alternating fit)
+├── Summary_joint.txt    # per-order joint-fit parameters + reduced χ² (dof = N − k)
+└── Models/
+    └── Model_order<n>.txt   # full reproducible best-fit model for order n
+```
+
 ### Step 2 — Period and amplitude uncertainties
 
-Use a bootstrapping technique: randomly vary the photometry within its error bars (Gaussian random factor) and refit the light curve for a user-defined number of trials. The FWHMs of the resulting period and amplitude distributions are the uncertainties.
+Use a Monte-Carlo error-propagation technique: randomly perturb the photometry within its error bars (a Gaussian draw at each point's 1-σ uncertainty, which already includes the field-star-dispersion systematic term) and refit the light curve for a user-defined number of trials. The **standard deviation (σ)** of the resulting period and amplitude distributions is the 1-σ uncertainty on each parameter.
 
 ```bash
 python period_uncertainty.py \
@@ -131,7 +143,7 @@ python period_uncertainty.py \
     --ntrials  1000
 ```
 
-The code outputs the period and amplitude distributions over all trials, along with the fitted FWHMs that give the uncertainties:
+The code outputs the period and amplitude distributions over all trials, along with the fitted Gaussian σ that gives each uncertainty:
 
 ![Period uncertainty results](docs/images/PeriodUncertaintyResults_rp.png)
 
@@ -211,6 +223,7 @@ pytest tests/
 # or, without pytest:
 python tests/test_read_photometry.py
 python tests/test_fourier.py
+python tests/test_joint.py
 ```
 
 ---

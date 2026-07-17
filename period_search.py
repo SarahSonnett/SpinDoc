@@ -23,7 +23,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-from spindoc import (HGfunction, fourier, chisqrpdf, makenewdir,
+from spindoc import (HGfunction, fourier, hg_fourier, chisqrpdf, makenewdir,
                      converttoUT, converttoMJD, lighttimecorrection, read_photometry)
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -146,7 +146,7 @@ def fit_period_chisq(time, minper, maxper, dP, H, G, order, iteration, data,
             rp_s, mg_s, me_s = rp_s[fm], mg_s[fm], me_s[fm]
         try:
             popt, _ = curve_fit(fourier, rp_s, mg_s, starterarray, sigma=me_s)
-            chi2array.append(chisqrpdf(mg_s, fourier(rp_s, *popt), me_s))
+            chi2array.append(chisqrpdf(mg_s, fourier(rp_s, *popt), me_s, nparams=len(popt)))
         except Exception:
             chi2array.append(np.nan)
 
@@ -189,7 +189,7 @@ def fit_period_chisq(time, minper, maxper, dP, H, G, order, iteration, data,
                 finalper = bestper
                 finalmodel = fourier(rotphase_fit, *popt)
                 finalxmodel = fourier(modelx, *popt)
-                finalchi2 = chisqrpdf(mg_s_fit, fourier(rp_s_fit, *popt), me_s_fit)
+                finalchi2 = chisqrpdf(mg_s_fit, fourier(rp_s_fit, *popt), me_s_fit, nparams=len(popt))
                 if writesubtracteddata and infile:
                     _write_subtracted(infile, order, reducedmags - fourier(rotphase, *popt))
             except Exception:
@@ -221,7 +221,7 @@ def _plot_phased(time, bestper, reducedmags, datebins, modelx, starterarray,
             popt, _ = curve_fit(fourier, rp_fit, mg_fit, starterarray, sigma=me_fit)
             modelmags = fourier(rp_fit, *popt)
             amp = max(fourier(modelx, *popt)) - min(fourier(modelx, *popt))
-            chi2final = chisqrpdf(mg_fit, modelmags, me_fit)
+            chi2final = chisqrpdf(mg_fit, modelmags, me_fit, nparams=len(popt))
         except Exception:
             continue
 
@@ -249,9 +249,9 @@ def _plot_phased(time, bestper, reducedmags, datebins, modelx, starterarray,
         plt.xlabel('Rotation phase')
         plt.ylabel('Reduced magnitude')
         try:
-            plt.title(f'{data.objname}, Per. = {per} h, Amp. = {amp:.3f} mags, N = {len(reducedmags)}')
+            plt.title(f'{data.objname}, Per. = {per:.4f} h, Amp. = {amp:.3f} mags, N = {len(reducedmags)}')
         except Exception:
-            plt.title(f'{data.objname}, Per. = {per} h, Unable to solve model, N = {len(reducedmags)}')
+            plt.title(f'{data.objname}, Per. = {per:.4f} h, Unable to solve model, N = {len(reducedmags)}')
         makenewdir(f'PeriodHGSearch_{data.fltr}/PhasedLightcurves/Order{order}')
         plt.savefig(
             f'PeriodHGSearch_{data.fltr}/PhasedLightcurves/Order{order}/'
@@ -269,6 +269,108 @@ def _write_subtracted(infile, order, datasubmodel):
             parts = line.split(' ')
             parts[8] = str(round(datasubmodel[i], 3))
             f.write(' '.join(parts[:11]) + '\n')
+
+
+# ---------------------------------------------------------------------------
+# Joint H-G + Fourier refinement
+# ---------------------------------------------------------------------------
+
+def fit_joint(data, period, order):
+    """Fit the H-G phase function and Fourier rotation series simultaneously.
+
+    Performs a single least-squares fit of {H, G, A_1, phi_1, ...} to the
+    reduced magnitudes at the (fixed) converged rotation period, so all
+    parameters share one covariance matrix. This yields self-consistent,
+    correlated uncertainties and a reduced chi-squared computed with the correct
+    degrees of freedom (dof = N - k). The rotation period itself stays fixed
+    from the grid search because the chi-squared surface over period is strongly
+    multimodal and a local optimiser cannot search it globally.
+
+    Returns a dict of results, or None on failure.
+    """
+    mask = data.fit_mask()
+    alpha = data.alpha[mask]
+    merr = data.merr[mask]
+    rmag = data.reducedmagsdistance[mask]
+    phase = ((data.time[mask] % period) / period + data.phaseshift) % 1.
+
+    X = np.vstack([alpha, phase])
+    p0 = [15., 0.4] + [1.] * (2 * order)          # H, G, then A_n, phi_n
+    lower = [-np.inf, -0.25] + [-np.inf] * (2 * order)
+    upper = [np.inf, 0.80] + [np.inf] * (2 * order)
+    try:
+        popt, pcov = curve_fit(hg_fourier, X, rmag, p0=p0, sigma=merr,
+                               bounds=(lower, upper), max_nfev=10000)
+    except Exception:
+        return None
+
+    perr = np.sqrt(np.diag(pcov))
+
+    # Peak-to-peak amplitude of the rotational part only (phase-function removed).
+    grid = np.linspace(0., 1., 10000)
+    rot = np.zeros_like(grid)
+    fcoeff = popt[2:]
+    for n in range(1, order + 1):
+        rot += fcoeff[2 * n - 2] * np.sin(2. * np.pi * n * grid + fcoeff[2 * n - 1])
+    amp = rot.max() - rot.min()
+
+    model = hg_fourier(X, *popt)
+    chi2nu = chisqrpdf(rmag, model, merr, nparams=len(popt))
+
+    return dict(period=period, order=order, H=popt[0], Hsig=perr[0],
+                G=popt[1], Gsig=perr[1], amp=amp, coeff=popt, perr=perr,
+                cov=pcov, chi2nu=chi2nu, npts=len(rmag))
+
+
+def write_model(fltr, res):
+    """Write a joint best-fit model to a self-describing text file.
+
+    Records everything needed to reconstruct the model downstream (e.g. for
+    shape-model fitting): the rotation period, H, G, the Fourier coefficients
+    with 1-sigma errors, the full covariance matrix, and a dense sampled model
+    curve.
+    """
+    order = res['order']
+    popt, perr, cov = res['coeff'], res['perr'], res['cov']
+    makenewdir(f'PeriodHGSearch_{fltr}/Models')
+    path = f'PeriodHGSearch_{fltr}/Models/Model_order{order}.txt'
+
+    names = ['H', 'G']
+    for n in range(1, order + 1):
+        names += [f'A_{n}', f'phi_{n}']
+
+    with open(path, 'w') as f:
+        f.write('# SpinDoc best-fit joint H-G + Fourier model\n')
+        f.write(f'# filter                    = {fltr}\n')
+        f.write(f'# rotation_period_hours      = {res["period"]:.6f}\n')
+        f.write(f'# fourier_order              = {order}\n')
+        f.write(f'# n_points                   = {res["npts"]}\n')
+        f.write(f'# n_free_parameters (k)      = {len(popt)}\n')
+        f.write(f'# reduced_chi2 (dof = N - k) = {res["chi2nu"]:.4f}\n')
+        f.write(f'# H_mag                      = {res["H"]:.4f} +/- {res["Hsig"]:.4f}\n')
+        f.write(f'# G                          = {res["G"]:.4f} +/- {res["Gsig"]:.4f}\n')
+        f.write(f'# peak_to_peak_amplitude_mag = {res["amp"]:.4f}\n')
+        f.write('#\n')
+        f.write('# Model: reduced_mag(alpha, phase) = HGfunction(alpha; H, G)\n')
+        f.write('#          + sum_n A_n * sin(2*pi*n*phase + phi_n),   phase in [0, 1)\n')
+        f.write('#\n')
+        f.write('# Fitted parameters:\n')
+        f.write('# name     value            sigma\n')
+        for nm, v, s in zip(names, popt, perr):
+            f.write(f'{nm:9s} {v: .8e} {s: .8e}\n')
+        f.write('#\n')
+        f.write('# Covariance matrix (parameter order as above):\n')
+        for row in cov:
+            f.write('# ' + ' '.join(f'{x: .6e}' for x in row) + '\n')
+        f.write('#\n')
+        f.write('# Dense model light curve at alpha = 0 (H-level):\n')
+        f.write('# phase      model_mag\n')
+        grid = np.linspace(0., 1., 1000)
+        curve = hg_fourier(np.vstack([np.zeros_like(grid), grid]), *popt)
+        for ph, mm in zip(grid, curve):
+            f.write(f'{ph:.5f}  {mm:.6f}\n')
+
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +453,11 @@ def run_filter(data, args):
     sumfile = open(f'PeriodHGSearch_{data.fltr}/Summary.txt', 'w')
     sumfile.write('Order Iteration chi2_nu Per(hrs) Amp(mags) H(mags) Hsigma G    Gsigma\n')
 
+    # Joint-fit summary: statistically self-consistent H, G, amplitude and an
+    # honest reduced chi-squared (dof = N - k) from one simultaneous fit per order.
+    jointfile = open(f'PeriodHGSearch_{data.fltr}/Summary_joint.txt', 'w')
+    jointfile.write('Order chi2_nu(N-k) Per(hrs) Amp(mags) H(mags) Hsigma G    Gsigma\n')
+
     all_rows = []
 
     for order in orderarray:
@@ -388,7 +495,18 @@ def run_filter(data, args):
                 maxper = topper + 20. * dP
             dP /= 10.
 
+        # Simultaneous H-G + Fourier refinement at the converged period, and
+        # write the reproducible best-fit model for this order.
+        res = fit_joint(data, topper, order)
+        if res is not None:
+            write_model(data.fltr, res)
+            jointfile.write('%2i  %8.4f  %3.4f  %1.3f  %2.4f  %1.4f  %2.4f  %1.4f\n'
+                            % (order, res['chi2nu'], res['period'], res['amp'],
+                               res['H'], res['Hsig'], res['G'], res['Gsig']))
+            jointfile.flush()
+
     sumfile.close()
+    jointfile.close()
 
     # Summary convergence plot
     try:

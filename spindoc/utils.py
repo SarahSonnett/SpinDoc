@@ -15,12 +15,19 @@ def makenewdir(dirname):
         pass
 
 
-def chisqrpdf(data, model, error):
+def chisqrpdf(data, model, error, nparams=1):
+    """Reduced chi-squared with dof = N - nparams.
+
+    ``nparams`` is the number of free fitted parameters (k). The statistically
+    correct reduced chi-squared uses dof = N - k; the default of 1 reproduces
+    the historical N - 1 behaviour for callers that only rank relative values.
+    """
     data = np.asarray(data)
     model = np.asarray(model)
     error = np.asarray(error)
     chisq = np.sum((data - model) ** 2 / error ** 2)
-    return chisq / (len(data) - 1)
+    dof = max(len(data) - nparams, 1)
+    return chisq / dof
 
 
 def converttoUT(mjd):
