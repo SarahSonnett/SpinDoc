@@ -24,7 +24,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 from spindoc import (HGfunction, fourier, hg_fourier, chisqrpdf, makenewdir,
-                     converttoUT, converttoMJD, lighttimecorrection, read_photometry)
+                     converttoUT, converttoMJD, lighttimecorrection, read_photometry,
+                     bls_search, find_events)
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -396,6 +397,129 @@ def recommend_order(results):
 
 
 # ---------------------------------------------------------------------------
+# Mutual-event (binary eclipse) search
+# ---------------------------------------------------------------------------
+
+def run_mutual_events(data, res, args):
+    """Search the model-subtracted residuals for binary mutual events.
+
+    Recomputes residuals from the joint best-fit model of the chosen order, then
+    runs a box-least-squares scan over trial orbital periods (recurring dip) and
+    an individual-event flagger (localised faint excursions). Writes a summary
+    and diagnostic plots under ``MutualEvents/``. A candidate orbital period near
+    the rotation period (or a simple multiple) is flagged as a likely
+    rotation-model residual rather than a genuine binary signal.
+    """
+    mask = data.fit_mask()
+    alpha = data.alpha[mask]
+    merr = data.merr[mask]
+    rmag = data.reducedmagsdistance[mask]
+    t = data.time[mask]
+    phase = ((t % res['period']) / res['period'] + data.phaseshift) % 1.
+    resid = rmag - hg_fourier(np.vstack([alpha, phase]), *res['coeff'])
+
+    rot = res['period']
+    baseline = t.max() - t.min()
+    minorb = args.minorbital if args.minorbital is not None else 2. * rot
+    maxorb = args.maxorbital if args.maxorbital is not None else baseline / 2.
+    if baseline <= 0 or maxorb <= minorb:
+        print(f'[filter {data.fltr}] mutual-event search skipped: insufficient time baseline.')
+        return
+
+    periods = np.linspace(minorb, maxorb, max(args.norbital, 2))
+    bls = bls_search(t, resid, merr, periods)
+    events = find_events(t, resid, merr, nsigma=args.eventsigma)
+    best = bls['best']
+
+    outdir = f'PeriodHGSearch_{data.fltr}/MutualEvents'
+    makenewdir(outdir)
+
+    with open(f'{outdir}/MutualEvents_summary.txt', 'w') as f:
+        f.write('# SpinDoc mutual-event (binary eclipse) search\n')
+        f.write(f'# residuals from joint model, Fourier order {res["order"]}\n')
+        f.write(f'# rotation_period_hours = {rot:.5f}\n')
+        f.write(f'# orbital search range  = {minorb:.3f} .. {maxorb:.3f} h ({len(periods)} steps)\n')
+        f.write('#\n# --- Periodic-dip (BLS) search ---\n')
+        if best is not None:
+            f.write(f'best_orbital_period_hours = {best["period"]:.5f}\n')
+            f.write(f'event_depth_mag           = {best["depth"]:.4f}\n')
+            f.write(f'detection_zscore          = {best["zscore"]:.2f}\n')
+            f.write(f'event_phase               = {best["phase"]:.3f}\n')
+            f.write(f'event_width_fraction      = {best["width"]:.3f}\n')
+            ratio = best['period'] / rot
+            for r_ in (0.5, 1.0, 2.0):
+                if abs(ratio - r_) < 0.03:
+                    f.write(f'# WARNING: candidate is ~{r_:g}x the rotation period -- '
+                            f'likely a rotation-model residual, not a binary signal.\n')
+            span = maxorb - minorb
+            if best['period'] - minorb < 0.02 * span or maxorb - best['period'] < 0.02 * span:
+                f.write('# WARNING: candidate sits at the edge of the search range -- often a\n')
+                f.write('#          long-timescale systematic; adjust --minorbital/--maxorbital.\n')
+            if best['width'] > 0.24:
+                f.write('# WARNING: fitted event width is near the maximum -- a broad trend rather\n')
+                f.write('#          than a localised eclipse; inspect the folded residuals.\n')
+            f.write('# NOTE: the z-score is a single-trial statistic and assumes independent points;\n')
+            f.write('#       assess a false-alarm probability (and correlated nightly noise) before\n')
+            f.write('#       claiming a detection.\n')
+        else:
+            f.write('no periodic candidate found\n')
+        f.write('#\n# --- Individual events (> %.1f sigma faint excursions) ---\n' % args.eventsigma)
+        f.write('# t_start_h  t_end_h  n_points  max_zscore  mean_depth_mag\n')
+        for e in events:
+            f.write(f'{e["t_start"]:.4f}  {e["t_end"]:.4f}  {e["n_points"]:3d}  '
+                    f'{e["max_zscore"]:.2f}  {e["mean_depth"]:.4f}\n')
+        if not events:
+            f.write('# (none)\n')
+
+    # BLS periodogram
+    plt.figure()
+    plt.plot(bls['periods'], bls['power'], lw=1)
+    if best is not None:
+        plt.axvline(best['period'], color='r', ls='--', lw=1,
+                    label=f'best = {best["period"]:.3f} h (z={best["zscore"]:.1f})')
+        plt.legend()
+    plt.xlabel('Trial orbital period (hrs)')
+    plt.ylabel('BLS detection z-score')
+    plt.title(f'{data.objname} mutual-event search (order {res["order"]})')
+    plt.savefig(f'{outdir}/BLS_periodogram.png', bbox_inches='tight')
+    plt.close()
+
+    # residuals vs time with flagged events shaded
+    plt.figure(figsize=(9, 4))
+    plt.errorbar(t, resid, yerr=merr, fmt='o', ms=3, color='0.5', lw=0.5)
+    for e in events:
+        plt.axvspan(e['t_start'], e['t_end'], color='orange', alpha=0.3)
+    plt.axhline(0, color='k', lw=0.5)
+    plt.gca().invert_yaxis()
+    plt.xlabel('Elapsed time (hrs)')
+    plt.ylabel('Residual (mag; fainter downward)')
+    plt.title(f'{data.objname} model-subtracted residuals')
+    plt.savefig(f'{outdir}/Residuals_vs_time.png', bbox_inches='tight')
+    plt.close()
+
+    # residuals folded at the candidate orbital period
+    if best is not None:
+        ph = (t % best['period']) / best['period']
+        plt.figure()
+        plt.errorbar(ph, resid, yerr=merr, fmt='o', ms=3, color='0.5', lw=0.5)
+        plt.axhline(0, color='k', lw=0.5)
+        plt.gca().invert_yaxis()
+        plt.xlabel(f'Orbital phase (P = {best["period"]:.4f} h)')
+        plt.ylabel('Residual (mag; fainter downward)')
+        plt.title(f'{data.objname} residuals folded at candidate orbital period')
+        plt.savefig(f'{outdir}/Residuals_folded.png', bbox_inches='tight')
+        plt.close()
+
+    if best is not None:
+        print(f'[filter {data.fltr}] mutual-event search (order {res["order"]}): '
+              f'best candidate P_orb = {best["period"]:.3f} h, depth {best["depth"]:.3f} mag, '
+              f'z = {best["zscore"]:.1f}; {len(events)} individual event(s) flagged.')
+    else:
+        print(f'[filter {data.fltr}] mutual-event search: no periodic candidate; '
+              f'{len(events)} individual event(s) flagged.')
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -423,6 +547,18 @@ def parse_args():
                    help='Write model-subtracted data to file (True/False)')
     p.add_argument('--excludedates',      dest='excludedates',      default=None,
                    help='Date range to exclude from fitting, e.g. 20100829_20100831')
+    p.add_argument('--mutualevents',      dest='mutualevents',      default='True',
+                   help='Search residuals for binary mutual events (True/False)')
+    p.add_argument('--eventorder',        dest='eventorder',        type=int, default=None,
+                   help='Fourier order whose residuals to search (default: BIC-recommended)')
+    p.add_argument('--minorbital',        dest='minorbital',        type=float, default=None,
+                   help='Minimum trial orbital period, hours (default: 2x rotation period)')
+    p.add_argument('--maxorbital',        dest='maxorbital',        type=float, default=None,
+                   help='Maximum trial orbital period, hours (default: half the data baseline)')
+    p.add_argument('--norbital',          dest='norbital',          type=int, default=2000,
+                   help='Number of trial orbital periods in the mutual-event search')
+    p.add_argument('--eventsigma',        dest='eventsigma',        type=float, default=4.0,
+                   help='Per-point significance threshold for individual event flagging')
     return p.parse_args()
 
 
@@ -543,6 +679,12 @@ def run_filter(data, args):
 
     sumfile.close()
     jointfile.close()
+
+    # Search the chosen order's residuals for binary mutual events.
+    if args.mutualevents == 'True' and joint_results:
+        want = args.eventorder if args.eventorder is not None else rec
+        res_ev = next((r for r in joint_results if r['order'] == want), joint_results[-1])
+        run_mutual_events(data, res_ev, args)
 
     # Summary convergence plot
     try:

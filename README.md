@@ -64,9 +64,11 @@ SpinDoc/
 │   ├── __init__.py        # public API
 │   ├── hg.py              # IAU H-G phase function
 │   ├── fourier.py         # Fourier series models
+│   ├── joint.py           # joint H-G + Fourier model
+│   ├── mutual.py          # binary mutual-event detectors (BLS + event flagging)
 │   ├── utils.py           # date conversion, chi-squared, directory helpers
 │   └── io.py              # photometry file reader
-├── period_search.py       # iterative period + H-G fitter
+├── period_search.py       # iterative period + H-G fitter + mutual-event search
 ├── period_uncertainty.py  # bootstrap period uncertainty
 ├── tests/                 # test suite
 └── docs/
@@ -128,9 +130,17 @@ Repeat until the period solution is isolated.
 PeriodHGSearch_<filter>/
 ├── Summary.txt          # per-order/iteration parameters (alternating fit)
 ├── Summary_joint.txt    # per-order joint-fit parameters + reduced χ² (dof = N − k)
-└── Models/
-    └── Model_order<n>.txt   # full reproducible best-fit model for order n
+├── Models/
+│   └── Model_order<n>.txt   # full reproducible best-fit model for order n
+└── MutualEvents/            # binary mutual-event search (see below)
 ```
+
+**Mutual-event (binary) search.** After the rotation and phase-function model is subtracted, the residuals are searched for signatures of a binary companion — brief, recurring eclipses/occultations ("mutual events") at the *orbital* period, distinct from the rotation period. In magnitude space an event makes the object fainter, so it appears as a positive residual excursion. Two complementary detectors run (on the residuals of the BIC-recommended order by default, or `--eventorder`):
+
+- a **box-least-squares (BLS) periodic search** that folds the residuals at a grid of trial orbital periods and looks for a recurring dip, and
+- an **individual-event flagger** that marks statistically significant faint excursions localized in time.
+
+Results go to `MutualEvents/`: a `MutualEvents_summary.txt` (best candidate orbital period, depth, detection z-score, and a flagged event list) plus `BLS_periodogram.png`, `Residuals_folded.png`, and `Residuals_vs_time.png`. The summary warns when a candidate coincides with the rotation period (or a simple multiple), sits at the edge of the search range, or has a suspiciously broad width — all signs of a systematic rather than a true binary. The detection z-score is a single-trial statistic, so confirm any candidate with a proper false-alarm assessment. Disable the search with `--mutualevents False`.
 
 ### Step 2 — Period and amplitude uncertainties
 
@@ -191,6 +201,12 @@ This scales roughly linearly with the number of photometry points and runs **onc
 | `--phaseshift` | `0.0` | Additive shift to rotation phase |
 | `--writesubtracteddata` | `False` | Write model-subtracted data file |
 | `--excludedates` | `None` | Date range to exclude from fitting (e.g. `20100829_20100831` or `56789.123_56789.567`) |
+| `--mutualevents` | `True` | Search residuals for binary mutual events |
+| `--eventorder` | `None` | Fourier order whose residuals to search (default: BIC-recommended) |
+| `--minorbital` | `None` | Minimum trial orbital period, hours (default: 2× rotation period) |
+| `--maxorbital` | `None` | Maximum trial orbital period, hours (default: half the data baseline) |
+| `--norbital` | `2000` | Number of trial orbital periods in the mutual-event search |
+| `--eventsigma` | `4.0` | Per-point significance threshold for individual event flagging |
 
 ### `period_uncertainty.py`
 
@@ -246,6 +262,7 @@ pytest tests/
 python tests/test_read_photometry.py
 python tests/test_fourier.py
 python tests/test_joint.py
+python tests/test_mutual.py
 ```
 
 ---
