@@ -48,6 +48,31 @@ def test_bls_null_is_weak():
     assert res["best"]["zscore"] < 8
 
 
+def test_two_box_recovers_both_eclipses():
+    # Primary + shallower secondary half a period apart: the two-box model must
+    # recover the FULL orbital period and both dips, where a single-box search
+    # aliases to half the period.
+    t, resid, err = _flat_residuals(seed=0)
+    porb = 18.3
+    ph = (t % porb) / porb
+    prim = np.abs(((ph - 0.2 + 0.5) % 1) - 0.5) < 0.04
+    sec = np.abs(((ph - 0.7 + 0.5) % 1) - 0.5) < 0.04
+    resid = resid + np.where(prim, 0.08, 0.0) + np.where(sec, 0.04, 0.0)
+
+    periods = np.linspace(6.0, 40.0, 1500)
+    one = bls_search(t, resid, err, periods, two_box=False)
+    two = bls_search(t, resid, err, periods, two_box=True)
+
+    assert two["best"] is not None
+    assert abs(two["best"]["period"] - porb) < 0.2          # full orbital period
+    assert two["best"]["depth1"] > 0 and two["best"]["depth2"] > 0
+    # the two recovered dips sit ~half a period apart
+    dphase = abs(two["best"]["phase1"] - two["best"]["phase2"]) % 1.0
+    assert abs(min(dphase, 1 - dphase) - 0.5) < 0.1
+    # single-box aliases to about half the true period
+    assert abs(one["best"]["period"] - porb / 2) < 0.3
+
+
 def test_find_events_flags_single_dip():
     t, resid, err = _flat_residuals(seed=1)
     resid[(t > 59.0) & (t < 60.0)] += 0.12     # a burst of faint points

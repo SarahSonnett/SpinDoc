@@ -137,10 +137,12 @@ PeriodHGSearch_<filter>/
 
 **Mutual-event (binary) search.** After the rotation and phase-function model is subtracted, the residuals are searched for signatures of a binary companion — brief, recurring eclipses/occultations ("mutual events") at the *orbital* period, distinct from the rotation period. In magnitude space an event makes the object fainter, so it appears as a positive residual excursion. Two complementary detectors run (on the residuals of the BIC-recommended order by default, or `--eventorder`):
 
-- a **box-least-squares (BLS) periodic search** that folds the residuals at a grid of trial orbital periods and looks for a recurring dip, and
+- a **box-least-squares (BLS) periodic search** that folds the residuals at a grid of trial orbital periods and looks for a recurring dip, run in two variants:
+  - **single-box** — one recurring dip per fold (any periodic attenuation), scored by a difference-of-means z-score;
+  - **two-box** — an eclipsing-binary model with a **primary and secondary eclipse half a period apart** (circular / tidally-locked orbit), equal duration but independent depths, scored by a χ²(2) signal residue. This is more sensitive when both eclipses are present and recovers the *true* orbital period, whereas the single-box search tends to alias to *half* the orbital period (folding overlays the two dips). Comparing the two — a two-box peak at `P` against a single-box peak near `P/2`, with the primary deeper than the secondary — is a strong binary signature. Disable with `--twobox False`.
 - an **individual-event flagger** that marks statistically significant faint excursions localized in time.
 
-Results go to `MutualEvents/`: a `MutualEvents_summary.txt` (best candidate orbital period, depth, detection z-score, and a flagged event list) plus `BLS_periodogram.png`, `Residuals_folded.png`, and `Residuals_vs_time.png`. The summary warns when a candidate coincides with the rotation period (or a simple multiple), sits at the edge of the search range, or has a suspiciously broad width — all signs of a systematic rather than a true binary. The detection z-score is a single-trial statistic, so confirm any candidate with a proper false-alarm assessment. Disable the search with `--mutualevents False`.
+Results go to `MutualEvents/`: a `MutualEvents_summary.txt` (both BLS results — candidate orbital period, primary/secondary depths and phases, detection statistics — plus a flagged event list), a two-panel `BLS_periodogram.png` (single-box z-score and two-box χ²), `Residuals_folded.png` (folded at the two-box period with both eclipses marked), and `Residuals_vs_time.png`. The summary warns when a candidate coincides with the rotation period (or a simple multiple), sits at the edge of the search range, has a suspiciously broad width, or looks like an aliased single dip (two-box period ≈ 2× single-box with near-equal depths) — all signs of a systematic rather than a true binary. Detection statistics are single-trial, so confirm any candidate with a proper false-alarm assessment. Disable the whole stage with `--mutualevents False`.
 
 ### Step 2 — Period and amplitude uncertainties
 
@@ -202,6 +204,7 @@ This scales roughly linearly with the number of photometry points and runs **onc
 | `--writesubtracteddata` | `False` | Write model-subtracted data file |
 | `--excludedates` | `None` | Date range to exclude from fitting (e.g. `20100829_20100831` or `56789.123_56789.567`) |
 | `--mutualevents` | `True` | Search residuals for binary mutual events |
+| `--twobox` | `True` | Also run the two-box (primary+secondary eclipse) model |
 | `--eventorder` | `None` | Fourier order whose residuals to search (default: BIC-recommended) |
 | `--minorbital` | `None` | Minimum trial orbital period, hours (default: 2× rotation period) |
 | `--maxorbital` | `None` | Maximum trial orbital period, hours (default: half the data baseline) |

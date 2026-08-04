@@ -21,7 +21,8 @@ object fainter, so events appear as POSITIVE residuals.
 import numpy as np
 
 
-def bls_search(time, resid, err, periods, nbins=120, min_dur=0.02, max_dur=0.25):
+def bls_search(time, resid, err, periods, nbins=120, min_dur=0.02, max_dur=0.25,
+               two_box=False):
     """Box-least-squares-style search for a recurring dip in the residuals.
 
     Parameters
@@ -39,13 +40,23 @@ def bls_search(time, resid, err, periods, nbins=120, min_dur=0.02, max_dur=0.25)
         Number of phase bins per fold.
     min_dur, max_dur : float
         Minimum/maximum event duration as a fraction of the orbital period.
+    two_box : bool
+        If False (default), search for a single recurring dip. If True, fit an
+        eclipsing-binary model with TWO dips per orbit: a primary and a secondary
+        half a period apart (circular / tidally-locked orbit), of equal duration
+        but independent depths. This is more sensitive when both eclipses are
+        present, at the cost of the equal-spacing/equal-duration assumption.
 
     Returns
     -------
     dict
-        ``periods`` (array), ``power`` (best detection z-score per period), and
-        ``best`` (dict for the peak period: period, depth, zscore, phase, width),
-        or ``best=None`` if nothing could be evaluated.
+        ``periods`` (array), ``power`` (best statistic per period), and ``best``
+        (dict for the peak period), or ``best=None`` if nothing could be
+        evaluated. For the single-box search ``power``/``best['zscore']`` is a
+        difference-of-means z-score and ``best`` carries (period, depth, zscore,
+        phase, width). For the two-box search ``power`` is a chi-squared(2) signal
+        residue and ``best`` carries (period, power, depth1, z1, phase1, depth2,
+        z2, phase2, width).
     """
     time = np.asarray(time, dtype=float)
     resid = np.asarray(resid, dtype=float)
@@ -55,12 +66,17 @@ def bls_search(time, resid, err, periods, nbins=120, min_dur=0.02, max_dur=0.25)
     w = 1.0 / err ** 2
     W = w.sum()
     WY = np.sum(w * resid)
+    Ybar = WY / W
 
+    shift = nbins // 2                          # half-period offset (two-box)
     dmin = max(int(min_dur * nbins), 1)
     dmax = max(int(max_dur * nbins), dmin)
+    if two_box:
+        dmax = min(dmax, shift)                 # keep the two boxes disjoint
 
     power = np.zeros(len(periods))
     best = None
+    best_val = -np.inf
 
     for pi, P in enumerate(periods):
         phase = (time % P) / P
@@ -72,30 +88,63 @@ def bls_search(time, resid, err, periods, nbins=120, min_dur=0.02, max_dur=0.25)
         cSw = np.concatenate([[0.0], np.cumsum(np.concatenate([Sw, Sw]))])
         cSwy = np.concatenate([[0.0], np.cumsum(np.concatenate([Swy, Swy]))])
 
-        bestz = 0.0
+        bestval = 0.0
         bestrec = None
         for d in range(dmin, dmax + 1):
-            inSw = cSw[d:d + nbins] - cSw[0:nbins]
-            inSwy = cSwy[d:d + nbins] - cSwy[0:nbins]
-            outSw = W - inSw
-            valid = (inSw > 0) & (outSw > 0)
-            if not valid.any():
-                continue
-            mu_in = np.where(inSw > 0, inSwy / np.where(inSw > 0, inSw, 1.0), 0.0)
-            mu_out = np.where(outSw > 0, (WY - inSwy) / np.where(outSw > 0, outSw, 1.0), 0.0)
-            depth = mu_in - mu_out                       # >0 => fainter in box
-            sig = np.sqrt(1.0 / np.where(inSw > 0, inSw, np.inf)
-                          + 1.0 / np.where(outSw > 0, outSw, np.inf))
-            z = np.where(valid & (depth > 0), depth / sig, 0.0)
-            k = int(np.argmax(z))
-            if z[k] > bestz:
-                bestz = z[k]
-                bestrec = dict(period=float(P), depth=float(depth[k]),
-                               zscore=float(z[k]),
-                               phase=float(((k + d / 2.0) % nbins) / nbins),
-                               width=float(d) / nbins)
-        power[pi] = bestz
-        if bestrec is not None and (best is None or bestz > best['zscore']):
+            inSw1 = cSw[d:d + nbins] - cSw[0:nbins]
+            inSwy1 = cSwy[d:d + nbins] - cSwy[0:nbins]
+
+            if not two_box:
+                outSw = W - inSw1
+                valid = (inSw1 > 0) & (outSw > 0)
+                if not valid.any():
+                    continue
+                mu_in = np.where(inSw1 > 0, inSwy1 / np.where(inSw1 > 0, inSw1, 1.0), 0.0)
+                mu_out = np.where(outSw > 0, (WY - inSwy1) / np.where(outSw > 0, outSw, 1.0), 0.0)
+                depth = mu_in - mu_out                   # >0 => fainter in box
+                sig = np.sqrt(1.0 / np.where(inSw1 > 0, inSw1, np.inf)
+                              + 1.0 / np.where(outSw > 0, outSw, np.inf))
+                val = np.where(valid & (depth > 0), depth / sig, 0.0)
+                k = int(np.argmax(val))
+                if val[k] > bestval:
+                    bestval = val[k]
+                    bestrec = dict(period=float(P), depth=float(depth[k]),
+                                   zscore=float(val[k]),
+                                   phase=float(((k + d / 2.0) % nbins) / nbins),
+                                   width=float(d) / nbins)
+            else:
+                # Second box a half-period after the first, same width.
+                inSw2 = cSw[shift + d:shift + d + nbins] - cSw[shift:shift + nbins]
+                inSwy2 = cSwy[shift + d:shift + d + nbins] - cSwy[shift:shift + nbins]
+                Wout = W - inSw1 - inSw2
+                valid = (inSw1 > 0) & (inSw2 > 0) & (Wout > 0)
+                if not valid.any():
+                    continue
+                mu1 = np.where(inSw1 > 0, inSwy1 / np.where(inSw1 > 0, inSw1, 1.0), 0.0)
+                mu2 = np.where(inSw2 > 0, inSwy2 / np.where(inSw2 > 0, inSw2, 1.0), 0.0)
+                muo = np.where(Wout > 0, (WY - inSwy1 - inSwy2) / np.where(Wout > 0, Wout, 1.0), 0.0)
+                depth1 = mu1 - muo
+                depth2 = mu2 - muo
+                # chi^2 reduction of the two-box model over a flat mean (~chi^2 with 2 dof)
+                reduction = (Wout * (muo - Ybar) ** 2
+                             + inSw1 * (mu1 - Ybar) ** 2
+                             + inSw2 * (mu2 - Ybar) ** 2)
+                val = np.where(valid & (depth1 > 0) & (depth2 > 0), reduction, 0.0)
+                k = int(np.argmax(val))
+                if val[k] > bestval:
+                    bestval = val[k]
+                    z1 = depth1[k] / np.sqrt(1.0 / inSw1[k] + 1.0 / Wout[k])
+                    z2 = depth2[k] / np.sqrt(1.0 / inSw2[k] + 1.0 / Wout[k])
+                    bestrec = dict(period=float(P), power=float(val[k]),
+                                   depth1=float(depth1[k]), z1=float(z1),
+                                   phase1=float(((k + d / 2.0) % nbins) / nbins),
+                                   depth2=float(depth2[k]), z2=float(z2),
+                                   phase2=float(((k + shift + d / 2.0) % nbins) / nbins),
+                                   width=float(d) / nbins)
+
+        power[pi] = bestval
+        if bestrec is not None and bestval > best_val:
+            best_val = bestval
             best = bestrec
 
     return dict(periods=periods, power=power, best=best)

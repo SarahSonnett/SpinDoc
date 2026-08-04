@@ -400,15 +400,33 @@ def recommend_order(results):
 # Mutual-event (binary eclipse) search
 # ---------------------------------------------------------------------------
 
+def _orbital_warnings(f, period, rot, minorb, maxorb, width=None):
+    """Write quality warnings for a candidate orbital period into open file f."""
+    ratio = period / rot
+    for r_ in (0.5, 1.0, 2.0):
+        if abs(ratio - r_) < 0.03:
+            f.write(f'# WARNING: candidate is ~{r_:g}x the rotation period -- '
+                    f'likely a rotation-model residual, not a binary signal.\n')
+    span = maxorb - minorb
+    if period - minorb < 0.02 * span or maxorb - period < 0.02 * span:
+        f.write('# WARNING: candidate sits at the edge of the search range -- often a\n')
+        f.write('#          long-timescale systematic; adjust --minorbital/--maxorbital.\n')
+    if width is not None and width > 0.24:
+        f.write('# WARNING: fitted event width is near the maximum -- a broad trend rather\n')
+        f.write('#          than a localised eclipse; inspect the folded residuals.\n')
+
+
 def run_mutual_events(data, res, args):
     """Search the model-subtracted residuals for binary mutual events.
 
     Recomputes residuals from the joint best-fit model of the chosen order, then
-    runs a box-least-squares scan over trial orbital periods (recurring dip) and
-    an individual-event flagger (localised faint excursions). Writes a summary
-    and diagnostic plots under ``MutualEvents/``. A candidate orbital period near
-    the rotation period (or a simple multiple) is flagged as a likely
-    rotation-model residual rather than a genuine binary signal.
+    runs a box-least-squares scan over trial orbital periods and an
+    individual-event flagger. Two BLS variants run: a single-box search (any one
+    recurring dip) and, unless disabled, a two-box eclipsing-binary model
+    (primary + secondary half a period apart). An eclipsing binary typically
+    peaks in the two-box search at the true orbital period while the single-box
+    search aliases to half that period, so the pair is diagnostic. Results and
+    diagnostic plots are written under ``MutualEvents/``.
     """
     mask = data.fit_mask()
     alpha = data.alpha[mask]
@@ -427,9 +445,19 @@ def run_mutual_events(data, res, args):
         return
 
     periods = np.linspace(minorb, maxorb, max(args.norbital, 2))
-    bls = bls_search(t, resid, merr, periods)
+    single = bls_search(t, resid, merr, periods, two_box=False)
+    do_two = args.twobox == 'True'
+    two = bls_search(t, resid, merr, periods, two_box=True) if do_two else None
     events = find_events(t, resid, merr, nsigma=args.eventsigma)
-    best = bls['best']
+    b1 = single['best']
+    b2 = two['best'] if two is not None else None
+
+    # Label the deeper of the two eclipses "primary".
+    prim = sec = None
+    if b2 is not None:
+        a = (b2['depth1'], b2['z1'], b2['phase1'])
+        b = (b2['depth2'], b2['z2'], b2['phase2'])
+        prim, sec = (a, b) if a[0] >= b[0] else (b, a)
 
     outdir = f'PeriodHGSearch_{data.fltr}/MutualEvents'
     makenewdir(outdir)
@@ -439,30 +467,40 @@ def run_mutual_events(data, res, args):
         f.write(f'# residuals from joint model, Fourier order {res["order"]}\n')
         f.write(f'# rotation_period_hours = {rot:.5f}\n')
         f.write(f'# orbital search range  = {minorb:.3f} .. {maxorb:.3f} h ({len(periods)} steps)\n')
-        f.write('#\n# --- Periodic-dip (BLS) search ---\n')
-        if best is not None:
-            f.write(f'best_orbital_period_hours = {best["period"]:.5f}\n')
-            f.write(f'event_depth_mag           = {best["depth"]:.4f}\n')
-            f.write(f'detection_zscore          = {best["zscore"]:.2f}\n')
-            f.write(f'event_phase               = {best["phase"]:.3f}\n')
-            f.write(f'event_width_fraction      = {best["width"]:.3f}\n')
-            ratio = best['period'] / rot
-            for r_ in (0.5, 1.0, 2.0):
-                if abs(ratio - r_) < 0.03:
-                    f.write(f'# WARNING: candidate is ~{r_:g}x the rotation period -- '
-                            f'likely a rotation-model residual, not a binary signal.\n')
-            span = maxorb - minorb
-            if best['period'] - minorb < 0.02 * span or maxorb - best['period'] < 0.02 * span:
-                f.write('# WARNING: candidate sits at the edge of the search range -- often a\n')
-                f.write('#          long-timescale systematic; adjust --minorbital/--maxorbital.\n')
-            if best['width'] > 0.24:
-                f.write('# WARNING: fitted event width is near the maximum -- a broad trend rather\n')
-                f.write('#          than a localised eclipse; inspect the folded residuals.\n')
-            f.write('# NOTE: the z-score is a single-trial statistic and assumes independent points;\n')
-            f.write('#       assess a false-alarm probability (and correlated nightly noise) before\n')
-            f.write('#       claiming a detection.\n')
+
+        f.write('#\n# --- Single-box search (one recurring dip) ---\n')
+        if b1 is not None:
+            f.write(f'best_orbital_period_hours = {b1["period"]:.5f}\n')
+            f.write(f'event_depth_mag           = {b1["depth"]:.4f}\n')
+            f.write(f'detection_zscore          = {b1["zscore"]:.2f}\n')
+            f.write(f'event_phase               = {b1["phase"]:.3f}\n')
+            f.write(f'event_width_fraction      = {b1["width"]:.3f}\n')
+            _orbital_warnings(f, b1['period'], rot, minorb, maxorb, b1['width'])
         else:
             f.write('no periodic candidate found\n')
+
+        if do_two:
+            f.write('#\n# --- Two-box eclipsing-binary model (primary + secondary at half period) ---\n')
+            if b2 is not None:
+                f.write(f'best_orbital_period_hours = {b2["period"]:.5f}\n')
+                f.write(f'primary_depth_mag         = {prim[0]:.4f}   (z = {prim[1]:.2f}, phase {prim[2]:.3f})\n')
+                f.write(f'secondary_depth_mag       = {sec[0]:.4f}   (z = {sec[1]:.2f}, phase {sec[2]:.3f})\n')
+                f.write(f'detection_statistic_chi2  = {b2["power"]:.2f}   (2 dof)\n')
+                f.write(f'event_width_fraction      = {b2["width"]:.3f}\n')
+                _orbital_warnings(f, b2['period'], rot, minorb, maxorb, b2['width'])
+                dratio = sec[0] / prim[0]
+                if (b1 is not None and abs(b2['period'] - 2. * b1['period']) < 0.03 * b2['period']
+                        and dratio > 0.8):
+                    f.write('# WARNING: two-box period ~2x the single-box period with near-equal\n')
+                    f.write('#          depths -- likely one dip aliased, not a true secondary eclipse.\n')
+            else:
+                f.write('no two-dip candidate found\n')
+
+        f.write('#\n# NOTE: detection statistics are single-trial and assume independent points;\n')
+        f.write('#       assess a false-alarm probability (and correlated nightly noise) before\n')
+        f.write('#       claiming a detection. A true eclipsing binary usually peaks in the two-box\n')
+        f.write('#       search at P while the single-box search aliases to ~P/2.\n')
+
         f.write('#\n# --- Individual events (> %.1f sigma faint excursions) ---\n' % args.eventsigma)
         f.write('# t_start_h  t_end_h  n_points  max_zscore  mean_depth_mag\n')
         for e in events:
@@ -471,16 +509,27 @@ def run_mutual_events(data, res, args):
         if not events:
             f.write('# (none)\n')
 
-    # BLS periodogram
-    plt.figure()
-    plt.plot(bls['periods'], bls['power'], lw=1)
-    if best is not None:
-        plt.axvline(best['period'], color='r', ls='--', lw=1,
-                    label=f'best = {best["period"]:.3f} h (z={best["zscore"]:.1f})')
-        plt.legend()
-    plt.xlabel('Trial orbital period (hrs)')
-    plt.ylabel('BLS detection z-score')
-    plt.title(f'{data.objname} mutual-event search (order {res["order"]})')
+    # BLS periodograms (single-box z-score; two-box chi-squared)
+    npanel = 2 if do_two else 1
+    fig, axes = plt.subplots(npanel, 1, figsize=(7, 3 * npanel), squeeze=False)
+    ax = axes[0][0]
+    ax.plot(single['periods'], single['power'], lw=1)
+    if b1 is not None:
+        ax.axvline(b1['period'], color='r', ls='--', lw=1,
+                   label=f'best = {b1["period"]:.3f} h (z={b1["zscore"]:.1f})')
+        ax.legend()
+    ax.set_ylabel('single-box z-score')
+    ax.set_title(f'{data.objname} mutual-event search (order {res["order"]})')
+    if do_two:
+        ax2 = axes[1][0]
+        ax2.plot(two['periods'], two['power'], lw=1, color='C2')
+        if b2 is not None:
+            ax2.axvline(b2['period'], color='r', ls='--', lw=1,
+                        label=f'best = {b2["period"]:.3f} h (chi2={b2["power"]:.0f})')
+            ax2.legend()
+        ax2.set_ylabel('two-box chi-squared')
+    axes[-1][0].set_xlabel('Trial orbital period (hrs)')
+    plt.tight_layout()
     plt.savefig(f'{outdir}/BLS_periodogram.png', bbox_inches='tight')
     plt.close()
 
@@ -497,26 +546,34 @@ def run_mutual_events(data, res, args):
     plt.savefig(f'{outdir}/Residuals_vs_time.png', bbox_inches='tight')
     plt.close()
 
-    # residuals folded at the candidate orbital period
-    if best is not None:
-        ph = (t % best['period']) / best['period']
+    # residuals folded at the best candidate period (two-box if available)
+    fold_best = b2 if b2 is not None else b1
+    if fold_best is not None:
+        ph = (t % fold_best['period']) / fold_best['period']
         plt.figure()
         plt.errorbar(ph, resid, yerr=merr, fmt='o', ms=3, color='0.5', lw=0.5)
         plt.axhline(0, color='k', lw=0.5)
+        if b2 is not None and fold_best is b2:
+            for (dep, zz, phc), lbl in [(prim, 'primary'), (sec, 'secondary')]:
+                plt.axvspan(phc - b2['width'] / 2, phc + b2['width'] / 2,
+                            color='orange', alpha=0.3, label=lbl)
+            plt.legend()
         plt.gca().invert_yaxis()
-        plt.xlabel(f'Orbital phase (P = {best["period"]:.4f} h)')
+        plt.xlabel(f'Orbital phase (P = {fold_best["period"]:.4f} h)')
         plt.ylabel('Residual (mag; fainter downward)')
         plt.title(f'{data.objname} residuals folded at candidate orbital period')
         plt.savefig(f'{outdir}/Residuals_folded.png', bbox_inches='tight')
         plt.close()
 
-    if best is not None:
-        print(f'[filter {data.fltr}] mutual-event search (order {res["order"]}): '
-              f'best candidate P_orb = {best["period"]:.3f} h, depth {best["depth"]:.3f} mag, '
-              f'z = {best["zscore"]:.1f}; {len(events)} individual event(s) flagged.')
-    else:
-        print(f'[filter {data.fltr}] mutual-event search: no periodic candidate; '
-              f'{len(events)} individual event(s) flagged.')
+    # console summary
+    parts = []
+    if b1 is not None:
+        parts.append(f'single-box P={b1["period"]:.3f} h (z={b1["zscore"]:.1f})')
+    if b2 is not None:
+        parts.append(f'two-box P={b2["period"]:.3f} h (primary/secondary {prim[0]:.3f}/{sec[0]:.3f}, chi2={b2["power"]:.0f})')
+    summary = '; '.join(parts) if parts else 'no periodic candidate'
+    print(f'[filter {data.fltr}] mutual-event search (order {res["order"]}): '
+          f'{summary}; {len(events)} individual event(s) flagged.')
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +606,8 @@ def parse_args():
                    help='Date range to exclude from fitting, e.g. 20100829_20100831')
     p.add_argument('--mutualevents',      dest='mutualevents',      default='True',
                    help='Search residuals for binary mutual events (True/False)')
+    p.add_argument('--twobox',            dest='twobox',            default='True',
+                   help='Also run the two-box (primary+secondary eclipse) model (True/False)')
     p.add_argument('--eventorder',        dest='eventorder',        type=int, default=None,
                    help='Fourier order whose residuals to search (default: BIC-recommended)')
     p.add_argument('--minorbital',        dest='minorbital',        type=float, default=None,
