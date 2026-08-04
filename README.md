@@ -144,6 +144,43 @@ PeriodHGSearch_<filter>/
 
 Results go to `MutualEvents/`: a `MutualEvents_summary.txt` (both BLS results — candidate orbital period, primary/secondary depths and phases, detection statistics — plus a flagged event list), a two-panel `BLS_periodogram.png` (single-box z-score and two-box χ²), `Residuals_folded.png` (folded at the two-box period with both eclipses marked), and `Residuals_vs_time.png`. The summary warns when a candidate coincides with the rotation period (or a simple multiple), sits at the edge of the search range, has a suspiciously broad width, or looks like an aliased single dip (two-box period ≈ 2× single-box with near-equal depths) — all signs of a systematic rather than a true binary. Detection statistics are single-trial, so confirm any candidate with a proper false-alarm assessment. Disable the whole stage with `--mutualevents False`.
 
+**Example — modeling an eclipsing binary.** The search runs automatically; the `--minorbital`/`--maxorbital` flags bracket the orbital period to probe (default: from 2× the rotation period up to half the data baseline):
+
+```bash
+python period_search.py \
+    --infile     docs/Target_Calibrated_FinalErr_rp_cleaned.txt \
+    --object     16152 \
+    --minper     20 --maxper 26 \
+    --minorbital 40 --maxorbital 200
+```
+
+When the residuals contain a binary, the two-box section of `MutualEvents/MutualEvents_summary.txt` reports the orbital period and both eclipse depths. The excerpt and figure below come from a **synthetic demonstration** — an eclipsing-binary signal (P = 61.7 h, primary 0.16 mag, secondary 0.09 mag) injected into the sample's real observing cadence, then recovered by the two-box search (the sample asteroid 16152 is not itself a known binary):
+
+```
+# --- Two-box eclipsing-binary model (primary + secondary at half period) ---
+best_orbital_period_hours = 61.64000
+primary_depth_mag         = 0.1379   (z = 19.50, phase 0.000)
+secondary_depth_mag       = 0.1027   (z = 14.00, phase 0.500)
+detection_statistic_chi2  = 539.00   (2 dof)
+event_width_fraction      = 0.083
+```
+
+Folding the residuals at the recovered period shows the two eclipses half a phase apart, the primary deeper than the secondary:
+
+![Synthetic eclipsing-binary demonstration](docs/images/mutual_event_demo.png)
+
+The detectors can also be called directly on any residual series:
+
+```python
+import numpy as np
+from spindoc import bls_search, find_events
+
+periods = np.linspace(40., 200., 3000)            # trial orbital periods (hours)
+result  = bls_search(time_h, residual_mag, err_mag, periods, two_box=True)
+best    = result['best']    # period, depth1/2, z1/2, phase1/2, power (chi-squared)
+events  = find_events(time_h, residual_mag, err_mag, nsigma=4.0)
+```
+
 ### Step 2 — Period and amplitude uncertainties
 
 Use a Monte-Carlo error-propagation technique: randomly perturb the photometry within its error bars (a Gaussian draw at each point's 1-σ uncertainty, which already includes the field-star-dispersion systematic term) and refit the light curve for a user-defined number of trials. The **standard deviation (σ)** of the resulting period and amplitude distributions is the 1-σ uncertainty on each parameter.
